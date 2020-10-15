@@ -1,6 +1,9 @@
 import scrapy
 
-from rednet.items import RednetPostItem
+
+from urllib import parse
+from rednet.items import RednetPostItem, RednetPostCommentItem
+
 
 class RednetBbsSpider(scrapy.Spider):
     name = 'rednet_bbs'
@@ -24,6 +27,10 @@ class RednetBbsSpider(scrapy.Spider):
             post_item['url'] = i_item.xpath(".//tr/th/a/@href").extract_first()
             print(post_item['url'])
 
+            result = parse.urlparse(post_item['url'])
+            post_id = parse.parse_qs(result.query).get("tid", [])[0]
+            post_item['post_id'] = post_id
+
             post_item['tag'] = i_item.xpath(".//tr/th/em/a/text()").extract_first()
             print(post_item['tag'])
 
@@ -46,14 +53,14 @@ class RednetBbsSpider(scrapy.Spider):
             print(post_item['post_view'])
 
             if post_item['url'] is not None:
-                #yield response.follow(post_item['url'], callback=self.parse_post)
+                yield response.follow(post_item['url'], callback=self.parse_post)
                 pass
 
         next_page = response.xpath("//div[@class='pg']/a[@class='nxt']/@href").extract_first()
 
         if next_page is not None:
-            yield response.follow(next_page, callback=self.parse_list)
-
+            #yield response.follow(next_page, callback=self.parse_list)
+            pass
 
     def parse_post(self, response):
         post_comment_list = response.xpath("//table[contains(@id, 'pid')]")
@@ -64,6 +71,16 @@ class RednetBbsSpider(scrapy.Spider):
         print(post_comment_list.xpath(".//span[@id='recommendv_subtract']/text()").extract_first())
 
         for comment_item in post_comment_list:
+            # 楼层信息
+
+            #print(comment_item.xpath(".//div[@class='pi']/strong/a/text()").extract())
+
+            floorNum = comment_item.xpath(".//div[@class='pi']/strong/a/em/text()").extract_first()
+            if floorNum is None:
+                floorNum = 1
+            print(floorNum)
+
+            #postmessage 里面包含了引用信息
             comment_content = comment_item.xpath(".//td[contains(@id, 'postmessage_')]").extract_first()
             #print(comment_content)
 
@@ -72,6 +89,16 @@ class RednetBbsSpider(scrapy.Spider):
 
             comment_poster = comment_item.xpath(".//div[@class='authi']/a/@href").extract_first()
             print(comment_poster)
+
+            poster_id = parse.parse_qs((parse.urlparse(comment_poster)).query).get("uid", [])[0]
+            print(poster_id)
+
+            #附件信息
+            #图片附件(要考虑需要解析什么附件)
+            attachments = comment_item.xpath(".//ignore_js_op/img/@file").extract()
+            print(attachments)
+
+
 
 
         next_page = response.xpath("//div[@class='pg']/a[@class='nxt']/@href").extract_first()

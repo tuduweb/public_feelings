@@ -9,6 +9,7 @@ from itemadapter import ItemAdapter
 
 
 import pymongo
+from rednet.items import RednetPostItem
 
 class RednetPipeline:
 
@@ -32,13 +33,16 @@ class RednetPipeline:
 
     def process_item(self, item, spider):
 
-        if isinstance(item, DoubanItem):
-            if self.db['db_movie'].find({'movie_id' : item['movie_id']}).count() == 0:
-                post_id = self.db['db_movie'].insert_one(item).inserted_id
-                print("Movie %d inserted %s!" % (item['movie_id'], post_id))
+        if isinstance(item, RednetPostItem):
+            if self.db['rednet_post'].find({'post_id' : item['post_id']}).count() == 0:
+                #record_id = self.db['rednet_post'].insert_one(item).inserted_id
+                #print("Post %d has been inserted %s!" % (item['post_id'], record_id))
 
             else:
-                print("Movie %d exist!" % item['movie_id'])
+                #pass
+                print("Post %d exist!" % item['post_id'])
+
+        #if isinstance(item, )
 
         return item
 
