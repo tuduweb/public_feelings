@@ -40,11 +40,13 @@ class RednetPostCommentItem(scrapy.Item):
     #no name
     #content
 
+    #comment id
+    comment_id = scrapy.Field()
+
     #floor 帖子楼层
     floor = scrapy.Field()
 
-    #comment id
-    comment_id = scrapy.Field()
+
     #回帖人
     comment_poster = scrapy.Field()
 

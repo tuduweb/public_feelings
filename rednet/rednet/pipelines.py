@@ -37,7 +37,7 @@ class RednetPipeline:
             if self.db['rednet_post'].find({'post_id' : item['post_id']}).count() == 0:
                 #record_id = self.db['rednet_post'].insert_one(item).inserted_id
                 #print("Post %d has been inserted %s!" % (item['post_id'], record_id))
-
+                pass
             else:
                 #pass
                 print("Post %d exist!" % item['post_id'])
