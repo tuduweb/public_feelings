@@ -25,7 +25,7 @@ class RednetBbsSpider(scrapy.Spider):
         #                          cookies={#"__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
         #                                   "__jsl_clearance_s": self.clearance}, dont_filter = True)
 
-        return [scrapy.Request('https://bbs.rednet.cn/', meta={'cookiejar': 1}, callback=self.parse_runjs_cookie)]
+        return [scrapy.Request('https://bbs.rednet.cn/', meta={'cookiejar': 1, 'step' : 1}, callback=self.parse_runjs_cookie)]
 
     def parse(self, response):
         pass
@@ -34,33 +34,58 @@ class RednetBbsSpider(scrapy.Spider):
         #print(response.headers) #include set-cookie infos
         #print(response.body)    #include js we need to anlysis
 
-        get_js = re.findall(r'<script>(.*?)</script>', response.body.decode('utf-8'))[0]
-        get_js = re.sub('document.cookie=', 'return(', get_js)
-        get_js = re.sub(';location.href', ');location.href', get_js)
-        get_js = "function getClearance(){" + get_js + "};"
-        content = execjs.compile(get_js)
-        temp = content.call('getClearance')
-        clearance = (temp.split(";")[0]).split("=")[-1]
-        #print(clearance)
-        #print(response.headers['Set-Cookie'].decode('utf-8'))
-        self.clearance = clearance
-        print(clearance)
+        if response.meta['step'] == 1:
+            # 第一次从js中获取clearance
+            get_js = re.findall(r'<script>(.*?)</script>', response.body.decode('utf-8'))[0]
+            get_js = re.sub('document.cookie=', 'return(', get_js)
+            get_js = re.sub(';location.href', ');location.href', get_js)
+            get_js = "function getClearance(){" + get_js + "};"
+            content = execjs.compile(get_js)
+            clearance_temp = content.call('getClearance')
+            clearance = (clearance_temp.split(";")[0]).split("=")[-1]
+            if clearance is not None:
+                self.clearance = clearance
+                self.step = 1
+                # 第一次获取完毕,组装上set-cookie的信息,进行第二次请求..
+                yield scrapy.Request('https://bbs.rednet.cn/', callback=self.parse_runjs_cookie,
+                                     meta={'cookiejar': response.meta['cookiejar'], 'step': 2},  # 保证请求链是基于当前请求的cookie
+                                     cookies={  # "__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
+                                         "__jsl_clearance_s": self.clearance}, dont_filter=True)
+        elif response.meta['step'] == 2:
+            get_js = re.findall(r'<script>(.*?)</script>', response.body.decode('utf-8'))[0]  # 去除script
+            # 改变函数:从写入cookie到写入全局变量中
+            get_js = re.sub(r'document.*?(=.*?)location', r"_clearance\1 return;location", get_js)
+            # 修改运行函数
+            get_js = get_js.replace("setTimeout", "runNow")
+            # 添加运行时环境 nodejs & execjs环境
+            get_js = 'const jsdom = require("jsdom");const { JSDOM } = jsdom;const dom = new JSDOM(`<!DOCTYPE html><p>Hello world</p>`);window = dom.window;' + get_js
+            # 添加变量,函数 javascript
+            get_js = "var runNow = function(func, val){func();};var _clearance;var getClearance = function(){return _clearance;};" + get_js
 
-        yield scrapy.Request(self.urls[0], callback=self.parse_list,
-                            meta={'cookiejar': response.meta['cookiejar'],},  # 保证请求链是基于当前请求的cookie
-                            cookies={#"__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
-                                   "__jsl_clearance_s": self.clearance}, dont_filter = True)
+            # 在jsdom的局部环境下运行程序
+            ctx = execjs.compile(get_js, cwd=r'E:\project\public_feelings\runtime\node_modules')
+            # 调用修改好的程序,获取输出
+            clearance_temp = ctx.call("getClearance")
+            clearance = (clearance_temp.split(";")[0]).split("=")[-1]
+            if clearance is not None:
+                self.clearance = clearance
+                #正式请求
+                yield scrapy.Request(self.urls[0], callback=self.parse_list,
+                                     meta={'cookiejar': response.meta['cookiejar']},  # 保证请求链是基于当前请求的cookie
+                                     cookies={  # "__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
+                                         "__jsl_clearance_s": self.clearance}, dont_filter=True)
 
-        yield scrapy.Request(self.urls[0], callback=self.parse_list,
-                       meta={'cookiejar': response.meta['cookiejar'], },  # 保证请求链是基于当前请求的cookie
-                       cookies={  # "__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
-                           "__jsl_clearance_s": self.clearance}, dont_filter=True)
+
+        # yield scrapy.Request(self.urls[0], callback=self.parse_list,
+        #                meta={'cookiejar': response.meta['cookiejar'], },  # 保证请求链是基于当前请求的cookie
+        #                cookies={  # "__jsluid_s": "3901890bc94a6a7843b3857ea32ec485",
+        #                    "__jsl_clearance_s": self.clearance}, dont_filter=True)
         return None
 
     def parse_list(self, response):
 
-        print(response.body)  # include js we need to anlysis
-        return None
+        #print(response.body)  # include js we need to anlysis
+        #return None
 
         post_list = response.xpath("//tbody[contains(@id, 'normalthread_')]")
 
@@ -101,13 +126,14 @@ class RednetBbsSpider(scrapy.Spider):
             print(post_item['post_view'])
 
             if post_item['url'] is not None:
-                yield response.follow(post_item['url'], callback=self.parse_post)
+                yield response.follow(post_item['url'], callback=self.parse_post, meta={'cookiejar': 1, 'page': 1})
                 pass
 
         next_page = response.xpath("//div[@class='pg']/a[@class='nxt']/@href").extract_first()
 
+        #帖子列表的下一页
         if next_page is not None:
-            #yield response.follow(next_page, callback=self.parse_list)
+            #yield response.follow(next_page, callback=self.parse_list, meta={'cookiejar': 1})
             pass
 
     def parse_post(self, response):
@@ -165,7 +191,8 @@ class RednetBbsSpider(scrapy.Spider):
 
 
         next_page = response.xpath("//div[@class='pg']/a[@class='nxt']/@href").extract_first()
-        print(next_page)
+        if next_page is not None:
+            print("下一页：" + next_page)
 
         if next_page is not None:
-            yield response.follow(next_page, callback=self.parse_post)
+            yield response.follow(next_page, callback=self.parse_post, meta={'cookiejar': 1, "page": 1})
